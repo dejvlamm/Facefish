@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#04101c" />
+    <title>Facefish</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="stage"></canvas>
+    <div id="hud">
+      <div id="hud-status">
+        <span id="hud-dot"></span>
+        <span id="hud-text">connecting…</span>
+        <span id="hud-fps"></span>
+      </div>
+      <form id="hud-form" autocomplete="off">
+        <label for="hud-url">Relay</label>
+        <input id="hud-url" type="text" inputmode="url" placeholder="ws://192.168.1.10:8765" />
+        <button type="submit">Connect</button>
+      </form>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
