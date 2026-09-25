@@ -92,8 +92,8 @@ async function main(): Promise<void> {
 
     const pose = mapper.update(decoder.frame, dt, time);
     fish.update(pose, mapper.weights, time);
-    stage.update(dt);
-    stage.render();
+    stage.update(dt, time);
+    stage.render(time);
 
     rateTimer += dt;
     if (rateTimer >= 1) {

@@ -38,6 +38,28 @@ the fish's screen-left, i.e. **the fish's own right side** (-X in Blender when
 it faces +Y). If you'd rather sculpt in Blender's natural `.L` / `.R` and the
 result comes out swapped, just rename the keys.
 
+## Made for singing
+
+The fish will be worn by a singer, so the mouth carries the performance. Spend the
+sculpting time there:
+
+- `jawOpen` must look good **held fully open** for seconds at a time, not just
+  flicked. Check it at 1.0 for clipping through the head, lips, and teeth.
+- Vowels are combinations: "ah" is `jawOpen`, "oo"/"oh" is `mouthFunnel` +
+  `mouthPucker` (with some `jawOpen`), "ee" is `mouthStretch_L/R` (+ a bit of
+  `mouthSmile`), "m"/humming is `jawOpen` + `mouthClose`. Sculpt `mouthClose` as
+  "lips sealed while the jaw is dropped", which is what ARKit means by it.
+- `mouthUpperUp_L/R`, `mouthLowerDown_L/R` and `mouthRollUpper/Lower` add teeth and
+  lip detail if the fish has any.
+- Singers close their eyes on long notes: `eyeBlink_L/R` should look calm when held
+  at 1.0, and `eyeSquint_L/R` adds effort.
+- `browInnerUp` and `browDown_L/R` sell emotion between phrases.
+- Deep breaths read as `cheekPuff` and a small `jawOpen`; the app doesn't add
+  anything for breath, so it's up to the shapes.
+
+Shapes blend additively in glTF, so test combinations (jawOpen + mouthFunnel,
+jawOpen + mouthSmile) in Blender's shape key panel before exporting.
+
 ## Bones / empties
 
 Head rotation is not a shape key. The app rotates a node named `Head` (or the

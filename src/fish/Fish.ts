@@ -151,7 +151,7 @@ export class Fish implements Avatar {
 
     // Mouth: open the cavity, drop the jaw, shape the lips.
     const open = pose.jawOpen;
-    const width = 1 + pose.mouthCorner * 0.28 - pose.pucker * 0.45;
+    const width = 1 + pose.mouthCorner * 0.28 + pose.mouthStretch * 0.2 - pose.pucker * 0.45;
     const lift = pose.mouthCorner * 0.05;
     const forward = pose.pucker * 0.18;
 

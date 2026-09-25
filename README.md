@@ -87,6 +87,39 @@ src/main.ts              wires everything together
 - `rateFast` / `rateSlow` are smoothing rates; higher is snappier.
 - `idleAfter` is how long without packets before the idle animation takes over.
 
+## Underwater look
+
+`src/water/CausticsTexture.ts` renders an animated caustics pattern into a texture
+every frame. A spot light above the fish projects it (`SpotLight.map`) onto whatever
+is in the scene, so it lands on the procedural fish and on a Blender model alike. The
+same texture feeds the background shader in `src/water/Background.ts` for surface
+shimmer, alongside the depth gradient and light shafts. Tune `tiles` and
+`brightness` on the caustics material, and the spot light intensity in
+`src/scene.ts`, to taste.
+
+## Notes for a singer
+
+Face Cap tracks singing well, but a few things matter more than for casual use:
+
+- **Latency.** The relay adds well under a frame; smoothing adds a little. Jaw and
+  mouth use the fast rate in `DEFAULT_MAPPING` so lips stay on the beat. If it feels
+  late, raise `rateFast`.
+- **Mouth shapes.** `mouthClose` (lips together with the jaw down) pulls the visible
+  opening back so humming doesn't look like shouting, and `mouthStretch` widens the
+  corners for "ee" vowels. A Blender model gets these from its shape keys; see
+  `blender/README.md`.
+- **Big head moves.** The head limit is 55 degrees. If a performer turns further and
+  you want the fish to follow, raise `headLimitDeg`.
+- **Mic and mounting.** ARKit copes with a handheld mic, but a headset boom across the
+  mouth can degrade jaw tracking. Mount the iPhone on the mic stand at face height so
+  the phone doesn't move with the performer.
+- **Wi-Fi at a venue.** Congested Wi-Fi drops packets. Face Cap's docs suggest a
+  personal hotspot on the iPhone with the relay machine joined to it, or USB; the
+  relay doesn't care which.
+- **Idle.** After 1.5 s without packets the fish idles. Between songs this is what
+  you see; set `idleAfter` longer if tracking is briefly lost when the singer turns
+  away.
+
 ## Face Cap protocol reference
 
 | Address | Args | Meaning |

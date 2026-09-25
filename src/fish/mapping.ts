@@ -27,7 +27,7 @@ export interface MappingConfig {
 export const DEFAULT_MAPPING: MappingConfig = {
   headSigns: { pitch: 1, yaw: -1, roll: -1 },
   headGain: 0.85,
-  headLimitDeg: 40,
+  headLimitDeg: 55,
   eyeRange: 0.45,
   idleAfter: 1.5,
   rateFast: 28,
@@ -119,11 +119,15 @@ export class FaceToFishMapper {
     const c = this.config;
     this.targetWeights.set(w);
 
-    // Mouth
-    t.jawOpen = Math.max(w[BS.jawOpen], w[BS.mouthFunnel] * 0.5);
+    // Mouth. mouthClose is ARKit's "lips together while the jaw is down"
+    // (humming, "m"), so it pulls the visible opening back toward closed.
+    const jaw = Math.max(w[BS.jawOpen], w[BS.mouthFunnel] * 0.5);
+    t.jawOpen = jaw * (1 - w[BS.mouthClose] * 0.85);
     const smile = (w[BS.mouthSmile_L] + w[BS.mouthSmile_R]) * 0.5;
     const frown = (w[BS.mouthFrown_L] + w[BS.mouthFrown_R]) * 0.5;
     t.mouthCorner = clamp(smile - frown, -1, 1);
+    // Wide vowels ("ee") stretch the corners without smiling.
+    t.mouthStretch = (w[BS.mouthStretch_L] + w[BS.mouthStretch_R]) * 0.5;
     t.pucker = Math.max(w[BS.mouthPucker], w[BS.mouthFunnel] * 0.7);
     // Mirror: the user's jawLeft appears on screen-left, which is -x.
     t.jawSide = clamp(w[BS.jawRight] + w[BS.mouthRight] - w[BS.jawLeft] - w[BS.mouthLeft], -1, 1) * -1;
@@ -175,6 +179,7 @@ export class FaceToFishMapper {
     // Fish mouthing the water.
     t.jawOpen = 0.12 + 0.1 * (0.5 + 0.5 * Math.sin(time * 2.1));
     t.mouthCorner = 0.15;
+    t.mouthStretch = 0;
     t.pucker = 0.1;
     t.jawSide = 0;
     t.tongue = 0;

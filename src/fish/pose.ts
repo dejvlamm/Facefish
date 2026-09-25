@@ -10,6 +10,8 @@ export interface FishPose {
   mouthCorner: number;
   /** 0..1 pucker / funnel. */
   pucker: number;
+  /** 0..1 horizontal stretch of the corners (wide vowels). */
+  mouthStretch: number;
   /** -1 = jaw to fish's left (screen -x), 1 = right. */
   jawSide: number;
   tongue: number;
@@ -47,6 +49,7 @@ export function createFishPose(): FishPose {
     jawOpen: 0,
     mouthCorner: 0,
     pucker: 0,
+    mouthStretch: 0,
     jawSide: 0,
     tongue: 0,
     cheekPuff: 0,
