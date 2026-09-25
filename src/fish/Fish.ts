@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { Avatar } from './Avatar';
 import type { FishPose } from './pose';
 
 /**
@@ -6,7 +7,7 @@ import type { FishPose } from './pose';
  * FishPose. Everything is built from primitives so no asset pipeline is
  * needed; swap this class for a glTF-based one later if you get a model.
  */
-export class Fish {
+export class Fish implements Avatar {
   readonly root = new THREE.Group();
 
   private readonly head = new THREE.Group();
@@ -139,7 +140,7 @@ export class Fish {
   }
 
   /** Apply a pose. `time` in seconds drives ambient fin and tail motion. */
-  update(pose: FishPose, time: number): void {
+  update(pose: FishPose, _weights: Float32Array, time: number): void {
     // Head orientation and drift.
     this.head.rotation.set(pose.headPitch, pose.headYaw, pose.headRoll, 'YXZ');
     this.head.position.set(pose.headX, pose.headY + Math.sin(time * 0.9) * 0.03, 0);

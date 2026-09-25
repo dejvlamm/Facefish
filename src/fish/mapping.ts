@@ -1,4 +1,4 @@
-import { BS } from '../facecap/blendshapes';
+import { BLENDSHAPE_COUNT, BS } from '../facecap/blendshapes';
 import type { FaceFrame } from '../facecap/types';
 import { createFishPose, POSE_KEYS, type FishPose, type PoseKey } from './pose';
 
@@ -46,6 +46,21 @@ const FAST_KEYS = new Set<PoseKey>([
   'eyePitchR',
 ]);
 
+const FAST_WEIGHTS = new Set<number>([
+  BS.jawOpen,
+  BS.eyeBlink_L,
+  BS.eyeBlink_R,
+  BS.tongueOut,
+  BS.eyeLookUp_L,
+  BS.eyeLookUp_R,
+  BS.eyeLookDown_L,
+  BS.eyeLookDown_R,
+  BS.eyeLookIn_L,
+  BS.eyeLookIn_R,
+  BS.eyeLookOut_L,
+  BS.eyeLookOut_R,
+]);
+
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
@@ -56,7 +71,10 @@ function clamp(v: number, lo: number, hi: number): number {
  */
 export class FaceToFishMapper {
   readonly pose: FishPose = createFishPose();
+  /** Smoothed 52 blendshape weights in Face Cap order, for morph-target avatars. */
+  readonly weights = new Float32Array(BLENDSHAPE_COUNT);
   private readonly target: FishPose = createFishPose();
+  private readonly targetWeights = new Float32Array(BLENDSHAPE_COUNT);
   private lastPacketTime = -Infinity;
   private nextBlink = 2;
   private blinkPhase = 1;
@@ -88,6 +106,10 @@ export class FaceToFishMapper {
       const k = FAST_KEYS.has(key) ? kFast : kSlow;
       this.pose[key] += (this.target[key] - this.pose[key]) * k;
     }
+    for (let i = 0; i < BLENDSHAPE_COUNT; i++) {
+      const k = FAST_WEIGHTS.has(i) ? kFast : kSlow;
+      this.weights[i] += (this.targetWeights[i] - this.weights[i]) * k;
+    }
     return this.pose;
   }
 
@@ -95,6 +117,7 @@ export class FaceToFishMapper {
     const w = frame.weights;
     const t = this.target;
     const c = this.config;
+    this.targetWeights.set(w);
 
     // Mouth
     t.jawOpen = Math.max(w[BS.jawOpen], w[BS.mouthFunnel] * 0.5);
@@ -169,5 +192,17 @@ export class FaceToFishMapper {
     t.headRoll = 4 * DEG * Math.sin(time * 0.35 + 1);
     t.headX = 0.05 * Math.sin(time * 0.4);
     t.headY = 0.04 * Math.sin(time * 0.9);
+
+    // Same behaviour expressed as raw blendshapes for morph-target avatars.
+    const tw = this.targetWeights;
+    tw.fill(0);
+    tw[BS.eyeBlink_L] = tw[BS.eyeBlink_R] = blink;
+    tw[BS.jawOpen] = t.jawOpen;
+    tw[BS.mouthSmile_L] = tw[BS.mouthSmile_R] = t.mouthCorner;
+    tw[BS.mouthPucker] = t.pucker;
+    tw[BS.eyeLookOut_L] = tw[BS.eyeLookIn_R] = Math.max(0, -gazeYaw);
+    tw[BS.eyeLookIn_L] = tw[BS.eyeLookOut_R] = Math.max(0, gazeYaw);
+    tw[BS.eyeLookDown_L] = tw[BS.eyeLookDown_R] = Math.max(0, gazePitch);
+    tw[BS.eyeLookUp_L] = tw[BS.eyeLookUp_R] = Math.max(0, -gazePitch);
   }
 }

@@ -1,11 +1,14 @@
 import { FaceCapDecoder } from './facecap/decoder';
 import { WebSocketSource, type FaceSource } from './facecap/source';
+import type { Avatar } from './fish/Avatar';
 import { Fish } from './fish/Fish';
+import { GltfFish } from './fish/GltfFish';
 import { FaceToFishMapper } from './fish/mapping';
 import { Stage } from './scene';
 import { Hud } from './ui/hud';
 
 const STORAGE_KEY = 'facefish.relayUrl';
+const DEFAULT_MODEL = './models/fish.glb';
 
 function defaultRelayUrl(): string {
   const fromQuery = new URLSearchParams(location.search).get('ws');
@@ -23,10 +26,28 @@ function defaultRelayUrl(): string {
   return `ws://${host}:8765`;
 }
 
-function main(): void {
+/**
+ * Load the Blender model if there is one (`public/models/fish.glb`, or
+ * `?model=<url>`), otherwise fall back to the procedural fish.
+ */
+async function loadAvatar(): Promise<Avatar> {
+  const param = new URLSearchParams(location.search).get('model');
+  const url = param ?? DEFAULT_MODEL;
+  try {
+    const fish = await GltfFish.load(url);
+    console.info(`[facefish] loaded model ${url}\n  ${fish.report.join('\n  ')}`);
+    return fish;
+  } catch (err) {
+    if (param) console.warn(`[facefish] could not load ${url}, using procedural fish`, err);
+    else console.info('[facefish] no models/fish.glb, using procedural fish');
+    return new Fish();
+  }
+}
+
+async function main(): Promise<void> {
   const canvas = document.getElementById('stage') as HTMLCanvasElement;
   const stage = new Stage(canvas);
-  const fish = new Fish();
+  const fish = await loadAvatar();
   stage.scene.add(fish.root);
 
   const decoder = new FaceCapDecoder();
@@ -70,7 +91,7 @@ function main(): void {
     const time = now / 1000;
 
     const pose = mapper.update(decoder.frame, dt, time);
-    fish.update(pose, time);
+    fish.update(pose, mapper.weights, time);
     stage.update(dt);
     stage.render();
 
@@ -90,4 +111,4 @@ function main(): void {
   requestAnimationFrame(frame);
 }
 
-main();
+void main();

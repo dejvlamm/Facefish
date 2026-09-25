@@ -50,6 +50,16 @@ The app talks to the relay over plain `ws://`, so the iOS project needs two thin
 
 On first launch, open the HUD and enter the relay address once.
 
+## Using a Blender model
+
+Drop your exported model at `public/models/fish.glb` and the app uses it instead of
+the procedural fish. Shape keys are matched to Face Cap blendshapes by name and a
+`Head` node or bone gets the head rotation. See [blender/README.md](blender/README.md)
+for naming, orientation and export settings, and run
+`blender/add_facecap_shapekeys.py` inside Blender to create the 52 correctly named
+shape keys on your mesh. During development you can also point at any file with
+`?model=<url>`.
+
 ## Project layout
 
 ```
@@ -59,7 +69,9 @@ src/facecap/decoder.ts   OSC messages → FaceFrame (52 weights, head, eyes)
 src/facecap/blendshapes.ts  Face Cap blendshape index table
 src/facecap/source.ts    FaceSource interface + WebSocket implementation
 src/fish/mapping.ts      FaceFrame → FishPose: mirroring, smoothing, idle behaviour
-src/fish/Fish.ts         procedural fish mesh driven by a FishPose
+src/fish/Fish.ts         procedural fish mesh (fallback when there is no model)
+src/fish/GltfFish.ts     Blender/glTF fish: shape keys by name, Head/Jaw/Eye/Tail nodes
+blender/                 Blender conventions and a shape-key setup script
 src/scene.ts             renderer, camera, lights, bubbles
 src/ui/hud.ts            status overlay + relay URL form
 src/main.ts              wires everything together
