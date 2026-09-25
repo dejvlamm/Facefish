@@ -11,10 +11,13 @@ export class Hud {
   private readonly dot = document.getElementById('hud-dot') as HTMLSpanElement;
   private readonly text = document.getElementById('hud-text') as HTMLSpanElement;
   private readonly fps = document.getElementById('hud-fps') as HTMLSpanElement;
+  private readonly action = document.getElementById('hud-action') as HTMLSpanElement;
   private readonly form = document.getElementById('hud-form') as HTMLFormElement;
   private readonly input = document.getElementById('hud-url') as HTMLInputElement;
 
   onConnect: ((url: string) => void) | null = null;
+  private mode: 'auto' | 'on' | 'off' = 'auto';
+  private hideTimer: number | null = null;
 
   constructor(initialUrl: string) {
     this.input.value = initialUrl;
@@ -30,8 +33,39 @@ export class Hud {
     return this.input.value.trim();
   }
 
+  setMode(mode: 'auto' | 'on' | 'off'): void {
+    this.mode = mode;
+    if (mode === 'on') this.show();
+    if (mode === 'off') this.hide();
+  }
+
   toggle(): void {
-    this.root.classList.toggle('hidden');
+    if (this.root.classList.contains('hidden')) this.show(this.mode === 'auto' ? 10000 : undefined);
+    else this.hide();
+  }
+
+  /** Show the HUD; with `forMs` it hides again after that long. */
+  show(forMs?: number): void {
+    this.root.classList.remove('hidden');
+    if (this.hideTimer !== null) window.clearTimeout(this.hideTimer);
+    this.hideTimer = null;
+    if (forMs !== undefined) {
+      this.hideTimer = window.setTimeout(() => this.hide(), forMs);
+    }
+  }
+
+  hide(): void {
+    if (this.mode === 'on') return;
+    this.root.classList.add('hidden');
+  }
+
+  /** Called when tracking first goes live: in auto mode, hide shortly after. */
+  trackingStarted(): void {
+    if (this.mode === 'auto') this.show(4000);
+  }
+
+  flashAction(name: string | null): void {
+    this.action.textContent = name ? `▶ ${name}` : '';
   }
 
   setSource(state: SourceState, detail?: string): void {

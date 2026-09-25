@@ -18,7 +18,8 @@ export class Stage {
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Capped at 1.5: the iPad sits inside a sealed helmet with no airflow.
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
 
@@ -80,6 +81,14 @@ export class Stage {
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
+  }
+
+  /** Frame the fish for the porthole: zoom in/out and shift vertically. */
+  setFraming(zoom: number, offsetY: number): void {
+    this.camera.zoom = zoom;
+    this.camera.position.y = 0.15 - offsetY;
+    this.camera.lookAt(0, -offsetY, 0);
+    this.camera.updateProjectionMatrix();
   }
 
   resize(): void {

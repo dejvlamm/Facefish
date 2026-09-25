@@ -6,9 +6,14 @@ const DEG = Math.PI / 180;
 
 export interface MappingConfig {
   /**
-   * Sign applied to each head axis. Face Cap sends ARKit's right-handed
-   * rotation; an avatar that faces the user needs yaw and roll flipped to
-   * behave like a mirror. Flip individual signs here if your setup differs.
+   * true: mirror (the screen faces the tracked person, like a desk test).
+   * false: the fish is the person's face seen from the front (the helmet on
+   * stage). This decides which side `_L` shapes land on and the sign of yaw.
+   */
+  mirror: boolean;
+  /**
+   * Extra sign applied to each head axis on top of the mirror handling, in
+   * case a setup needs an axis flipped. Verify on the device.
    */
   headSigns: { pitch: number; yaw: number; roll: number };
   /** Scale applied to head rotation (1 = follow exactly). */
@@ -25,8 +30,9 @@ export interface MappingConfig {
 }
 
 export const DEFAULT_MAPPING: MappingConfig = {
-  headSigns: { pitch: 1, yaw: -1, roll: -1 },
-  headGain: 0.85,
+  mirror: false,
+  headSigns: { pitch: 1, yaw: 1, roll: 1 },
+  headGain: 0,
   headLimitDeg: 55,
   eyeRange: 0.45,
   idleAfter: 1.5,
@@ -119,6 +125,13 @@ export class FaceToFishMapper {
     const c = this.config;
     this.targetWeights.set(w);
 
+    // Which tracked side lands on screen-left? In a mirror the person's left
+    // is on screen-left. Seen from the front (helmet), their right is.
+    const pair = (l: number, r: number): [number, number] => (c.mirror ? [w[l], w[r]] : [w[r], w[l]]);
+    // Mirror: person's right appears on screen-right (+x). Front view: person's
+    // left is on screen-right.
+    const side = c.mirror ? 1 : -1;
+
     // Mouth. mouthClose is ARKit's "lips together while the jaw is down"
     // (humming, "m"), so it pulls the visible opening back toward closed.
     const jaw = Math.max(w[BS.jawOpen], w[BS.mouthFunnel] * 0.5);
@@ -128,36 +141,42 @@ export class FaceToFishMapper {
     t.mouthCorner = clamp(smile - frown, -1, 1);
     // Wide vowels ("ee") stretch the corners without smiling.
     t.mouthStretch = (w[BS.mouthStretch_L] + w[BS.mouthStretch_R]) * 0.5;
-    t.pucker = Math.max(w[BS.mouthPucker], w[BS.mouthFunnel] * 0.7);
-    // Mirror: the user's jawLeft appears on screen-left, which is -x.
-    t.jawSide = clamp(w[BS.jawRight] + w[BS.mouthRight] - w[BS.jawLeft] - w[BS.mouthLeft], -1, 1) * -1;
+    t.jawSide = clamp(w[BS.jawRight] + w[BS.mouthRight] - w[BS.jawLeft] - w[BS.mouthLeft], -1, 1) * side;
     t.tongue = w[BS.tongueOut];
     t.cheekPuff = w[BS.cheekPuff];
 
-    // Eyes. `_L` is the user's left eye, which a mirror shows on screen-left (-x).
-    t.blinkL = w[BS.eyeBlink_L];
-    t.blinkR = w[BS.eyeBlink_R];
-    t.wideL = w[BS.eyeWide_L];
-    t.wideR = w[BS.eyeWide_R];
-    t.eyeYawL = (w[BS.eyeLookIn_L] - w[BS.eyeLookOut_L]) * c.eyeRange;
-    t.eyeYawR = (w[BS.eyeLookOut_R] - w[BS.eyeLookIn_R]) * c.eyeRange;
-    t.eyePitchL = (w[BS.eyeLookDown_L] - w[BS.eyeLookUp_L]) * c.eyeRange;
-    t.eyePitchR = (w[BS.eyeLookDown_R] - w[BS.eyeLookUp_R]) * c.eyeRange;
+    // Eyes. pose.*L is the screen-left eye.
+    [t.blinkL, t.blinkR] = pair(BS.eyeBlink_L, BS.eyeBlink_R);
+    [t.wideL, t.wideR] = pair(BS.eyeWide_L, BS.eyeWide_R);
+    const [inL, inR] = pair(BS.eyeLookIn_L, BS.eyeLookIn_R);
+    const [outL, outR] = pair(BS.eyeLookOut_L, BS.eyeLookOut_R);
+    const [upL, upR] = pair(BS.eyeLookUp_L, BS.eyeLookUp_R);
+    const [downL, downR] = pair(BS.eyeLookDown_L, BS.eyeLookDown_R);
+    // The screen-left eye looking "out" always means toward -x, whichever
+    // real eye it is, because "out" is away from the nose on either side.
+    t.eyeYawL = (inL - outL) * c.eyeRange;
+    t.eyeYawR = (outR - inR) * c.eyeRange;
+    t.eyePitchL = (downL - upL) * c.eyeRange;
+    t.eyePitchR = (downR - upR) * c.eyeRange;
 
     // Brows
-    t.browL = clamp(w[BS.browOuterUp_L] + w[BS.browInnerUp] * 0.5 - w[BS.browDown_L], -1, 1);
-    t.browR = clamp(w[BS.browOuterUp_R] + w[BS.browInnerUp] * 0.5 - w[BS.browDown_R], -1, 1);
+    const [bdL, bdR] = pair(BS.browDown_L, BS.browDown_R);
+    const [boL, boR] = pair(BS.browOuterUp_L, BS.browOuterUp_R);
+    t.browL = clamp(boL + w[BS.browInnerUp] * 0.5 - bdL, -1, 1);
+    t.browR = clamp(boR + w[BS.browInnerUp] * 0.5 - bdR, -1, 1);
     t.browInner = w[BS.browInnerUp];
 
-    // Head
+    // Head. A mirror flips yaw and roll; a front view keeps them.
     const lim = c.headLimitDeg;
     const r = frame.headRotation;
+    const yawSign = c.headSigns.yaw * (c.mirror ? -1 : 1);
+    const rollSign = c.headSigns.roll * (c.mirror ? -1 : 1);
     t.headPitch = clamp(r.x, -lim, lim) * DEG * c.headGain * c.headSigns.pitch;
-    t.headYaw = clamp(r.y, -lim, lim) * DEG * c.headGain * c.headSigns.yaw;
-    t.headRoll = clamp(r.z, -lim, lim) * DEG * c.headGain * c.headSigns.roll;
-    // Head position is in metres; a mirror flips x. Keep it subtle.
-    t.headX = clamp(-frame.headPosition.x, -0.3, 0.3) * 1.5;
-    t.headY = clamp(frame.headPosition.y, -0.3, 0.3) * 1.5;
+    t.headYaw = clamp(r.y, -lim, lim) * DEG * c.headGain * yawSign;
+    t.headRoll = clamp(r.z, -lim, lim) * DEG * c.headGain * rollSign;
+    // Head position is in metres; keep it subtle and scale with headGain too.
+    t.headX = clamp(frame.headPosition.x * side, -0.3, 0.3) * 1.5 * c.headGain;
+    t.headY = clamp(frame.headPosition.y, -0.3, 0.3) * 1.5 * c.headGain;
   }
 
   private idle(time: number, dt: number): void {

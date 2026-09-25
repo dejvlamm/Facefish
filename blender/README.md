@@ -75,6 +75,26 @@ whole model if there is none). Other names it recognises, all optional:
 Object names and bone names both work. Any other bones are left alone, so
 you can keep rig helpers around.
 
+## Actions (animation clips)
+
+Body actions like a lap around the bowl can be authored in Blender and exported in
+the same GLB. The app plays a clip by name when an action is triggered, and falls
+back to a built-in procedural version when there is no clip.
+
+- Make each action a Blender Action, then push it down to its own **NLA track**.
+  Export with Animation → Animation mode: **NLA Tracks**, and Group by NLA Track
+  ticked, so each track becomes one named clip.
+- Name clips after the action: `lap`, `spin`, `nod`, `wiggle` (case matters; match
+  the names in `src/actions/procedural.ts` or add new ones there).
+- Clips animate the body: a root or body bone, fins, tail, location and rotation of
+  the whole fish. **Never** key the `Head` bone or any shape key in a clip; face
+  tracking owns those and would fight the clip.
+- Clips must start and end at the rest pose, since tracking takes over the moment
+  they finish.
+- Keep the fish inside a couple of metres of the origin; the camera does not follow.
+  For the lap, swim off one side, pass behind (the scene has fog, so it fades), and
+  return from the other side facing front.
+
 ## Export
 
 File → Export → glTF 2.0:
@@ -85,7 +105,7 @@ File → Export → glTF 2.0:
 - Data → Mesh → **Apply Modifiers**, and **Shape Keys** ticked (under
   Mesh → Shape Keys in newer Blender)
 - Data → Armature → Export Deformation Bones Only is fine
-- Skip animations unless you want an idle clip later
+- Animation → NLA Tracks if you have action clips (see above), otherwise skip animations
 - Keep textures small; the whole file should stay under ~10 MB for the iPad
 
 Save as `public/models/fish.glb`, run `npm run dev` and the relay with

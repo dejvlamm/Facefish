@@ -1,9 +1,12 @@
+import { ActionPlayer } from './actions/ActionPlayer';
+import { GestureTriggers, installKeyboardTriggers } from './actions/triggers';
+import { loadConfig } from './config';
 import { FaceCapDecoder } from './facecap/decoder';
 import { WebSocketSource, type FaceSource } from './facecap/source';
 import type { Avatar } from './fish/Avatar';
 import { Fish } from './fish/Fish';
 import { GltfFish } from './fish/GltfFish';
-import { FaceToFishMapper } from './fish/mapping';
+import { DEFAULT_MAPPING, FaceToFishMapper } from './fish/mapping';
 import { Stage } from './scene';
 import { Hud } from './ui/hud';
 
@@ -45,14 +48,39 @@ async function loadAvatar(): Promise<Avatar> {
 }
 
 async function main(): Promise<void> {
+  const config = loadConfig();
+  console.info('[facefish] config', config);
+  if (config.porthole) document.body.classList.add('porthole');
+
   const canvas = document.getElementById('stage') as HTMLCanvasElement;
   const stage = new Stage(canvas);
+  stage.setFraming(config.zoom, config.offsetY);
   const fish = await loadAvatar();
   stage.scene.add(fish.root);
 
   const decoder = new FaceCapDecoder();
-  const mapper = new FaceToFishMapper();
+  const mapper = new FaceToFishMapper({ ...DEFAULT_MAPPING, mirror: config.mirror, headGain: config.headGain });
   const hud = new Hud(defaultRelayUrl());
+  hud.setMode(config.hud);
+
+  // Actions: procedural or Blender clips, triggered by keys, relay messages
+  // and (optionally) face gestures.
+  const actions = new ActionPlayer(fish);
+  actions.onChange = (name) => hud.flashAction(name);
+  console.info(`[facefish] actions: ${actions.available.join(', ')}`);
+  installKeyboardTriggers(
+    config.keys,
+    (name) => actions.trigger(name),
+    (key) => {
+      if (key === 'h' || key === 'Escape') hud.toggle();
+    },
+  );
+  const gestures = config.gestures
+    ? new GestureTriggers((name, gesture) => {
+        console.info(`[facefish] gesture "${gesture}" → ${name}`);
+        actions.trigger(name);
+      })
+    : null;
 
   let source: FaceSource | null = null;
   let packetsThisSecond = 0;
@@ -75,6 +103,9 @@ async function main(): Promise<void> {
         packetsThisSecond++;
       }
     };
+    source.onMessage = (msg) => {
+      if (msg.type === 'action' && typeof msg.name === 'string') actions.trigger(msg.name);
+    };
     source.start();
   }
 
@@ -85,13 +116,16 @@ async function main(): Promise<void> {
 
   let last = performance.now();
   let wasLive = false;
+  let nextIdleAction = 20;
   function frame(now: number): void {
     const dt = Math.min(0.1, (now - last) / 1000);
     last = now;
     const time = now / 1000;
 
     const pose = mapper.update(decoder.frame, dt, time);
-    fish.update(pose, mapper.weights, time);
+    gestures?.update(decoder.frame, dt, time);
+    actions.update(dt);
+    fish.update(pose, mapper.weights, time, dt);
     stage.update(dt, time);
     stage.render(time);
 
@@ -103,8 +137,18 @@ async function main(): Promise<void> {
     }
     const live = mapper.isLive;
     if (live || wasLive) hud.setLive(live, packetRate);
+    if (live && !wasLive) hud.trackingStarted();
     if (wasLive && !live && source) hud.setSource(source.state);
     wasLive = live;
+
+    if (config.idleActions && !live && !actions.playing) {
+      nextIdleAction -= dt;
+      if (nextIdleAction <= 0) {
+        nextIdleAction = 20 + Math.random() * 25;
+        const pick = ['lap', 'wiggle', 'nod', 'spin'][Math.floor(Math.random() * 4)];
+        actions.trigger(pick);
+      }
+    }
 
     requestAnimationFrame(frame);
   }

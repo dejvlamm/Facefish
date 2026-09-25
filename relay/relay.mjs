@@ -11,8 +11,17 @@
  *
  * --fake generates synthetic Face Cap data at 60 fps so you can develop
  * without an iPhone.
+ *
+ * Control channel: the same WebSocket carries JSON text frames such as
+ * {"type":"action","name":"lap"}. They come from
+ *   - OSC on the UDP port: address "/action" with a string argument, or
+ *     "/action/lap" (from QLab, TouchOSC, Ableton, ...)
+ *   - the control page at http://<relay>:<ws port>/ (buttons + keyboard)
+ *   - any WebSocket client sending a text frame
+ * and are rebroadcast to every connected app.
  */
 import dgram from 'node:dgram';
+import http from 'node:http';
 import os from 'node:os';
 import { WebSocketServer } from 'ws';
 
@@ -21,7 +30,19 @@ const UDP_PORT = Number(args.udp ?? process.env.FACECAP_UDP_PORT ?? 8080);
 const WS_PORT = Number(args.ws ?? process.env.FACECAP_WS_PORT ?? 8765);
 const FAKE = Boolean(args.fake);
 
-const wss = new WebSocketServer({ port: WS_PORT });
+const httpServer = http.createServer((req, res) => {
+  if (req.url === '/' || req.url === '/index.html') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(CONTROL_PAGE);
+  } else if (req.url === '/health') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ clients: clients.size, fake: FAKE }));
+  } else {
+    res.writeHead(404);
+    res.end();
+  }
+});
+const wss = new WebSocketServer({ server: httpServer });
 let clients = new Set();
 let packetsIn = 0;
 let packetsOut = 0;
@@ -29,12 +50,17 @@ let packetsOut = 0;
 wss.on('connection', (ws, req) => {
   clients.add(ws);
   console.log(`[ws] client connected from ${req.socket.remoteAddress} (${clients.size} total)`);
+  ws.on('message', (data, isBinary) => {
+    // Text frames are control messages; pass them on to everyone else.
+    if (!isBinary) sendControl(data.toString(), ws);
+  });
   ws.on('close', () => {
     clients.delete(ws);
     console.log(`[ws] client disconnected (${clients.size} total)`);
   });
   ws.on('error', () => {});
 });
+httpServer.listen(WS_PORT);
 
 function broadcast(buf) {
   for (const ws of clients) {
@@ -45,30 +71,77 @@ function broadcast(buf) {
   }
 }
 
-if (FAKE) {
-  startFake();
-} else {
-  const udp = dgram.createSocket('udp4');
-  udp.on('message', (msg) => {
-    packetsIn++;
-    broadcast(msg);
-  });
-  udp.on('error', (err) => {
-    console.error('[udp] error', err);
-    process.exit(1);
-  });
-  udp.bind(UDP_PORT, '0.0.0.0', () => {
-    console.log(`[udp] listening on 0.0.0.0:${UDP_PORT}`);
-  });
+function sendControl(text, except = null) {
+  let msg;
+  try {
+    msg = JSON.parse(text);
+  } catch {
+    return;
+  }
+  if (!msg || typeof msg.type !== 'string') return;
+  if (msg.type === 'action') console.log(`[action] ${msg.name}`);
+  for (const ws of clients) {
+    if (ws !== except && ws.readyState === ws.OPEN) ws.send(text);
+  }
 }
 
+/** OSC "/action lap" or "/action/lap" → control message. Anything else is Face Cap data. */
+function handleOscControl(msg) {
+  if (msg.length < 8 || msg[0] !== 0x2f) return false; // not a bare OSC message
+  const end = msg.indexOf(0);
+  const address = msg.toString('utf8', 0, end === -1 ? msg.length : end);
+  if (!address.startsWith('/action')) return false;
+  let name = address.slice('/action'.length).replace(/^\//, '');
+  if (!name) {
+    // First string argument, if any.
+    const tagsStart = align4(end + 1);
+    const tagsEnd = msg.indexOf(0, tagsStart);
+    const tags = msg.toString('utf8', tagsStart, tagsEnd === -1 ? msg.length : tagsEnd);
+    const argStart = align4(tagsEnd + 1);
+    if (tags[1] === 's') {
+      const strEnd = msg.indexOf(0, argStart);
+      name = msg.toString('utf8', argStart, strEnd === -1 ? msg.length : strEnd);
+    }
+  }
+  if (name) sendControl(JSON.stringify({ type: 'action', name }));
+  return true;
+}
+
+function align4(n) {
+  return (n + 3) & ~3;
+}
+
+// The UDP port is always open: Face Cap data plus OSC "/action" control
+// messages. In --fake mode real Face Cap packets are ignored so the two
+// streams don't fight.
+const udp = dgram.createSocket('udp4');
+udp.on('message', (msg) => {
+  if (handleOscControl(msg)) return;
+  if (FAKE) return;
+  packetsIn++;
+  broadcast(msg);
+});
+udp.on('error', (err) => {
+  console.error('[udp] error', err);
+  process.exit(1);
+});
+udp.bind(UDP_PORT, '0.0.0.0', () => {
+  console.log(`[udp] listening on 0.0.0.0:${UDP_PORT}`);
+});
+if (FAKE) startFake();
+
 console.log(`[ws]  listening on ws://0.0.0.0:${WS_PORT}`);
+console.log(`[http] control page on http://0.0.0.0:${WS_PORT}/`);
 console.log('');
 console.log('In Face Cap → Live Mode, enter one of these addresses and the UDP port:');
 for (const ip of lanAddresses()) console.log(`    ${ip}  port ${UDP_PORT}`);
 console.log('');
 console.log('In the app, connect to:');
 for (const ip of lanAddresses()) console.log(`    ws://${ip}:${WS_PORT}`);
+console.log('');
+console.log('Trigger actions from:');
+for (const ip of lanAddresses()) console.log(`    http://${ip}:${WS_PORT}/   (buttons + keyboard)`);
+console.log(`    OSC "/action lap" or "/action/lap" to UDP port ${UDP_PORT}`);
 console.log('');
 
 setInterval(() => {
@@ -107,6 +180,60 @@ function lanAddresses() {
   }
   return out.length ? out : ['127.0.0.1'];
 }
+
+// --- control page -----------------------------------------------------------
+
+const CONTROL_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Facefish control</title>
+<style>
+  body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
+       background:#04101c;color:#dbe9f5;font:16px/1.4 -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;-webkit-user-select:none;user-select:none}
+  h1{font-size:18px;font-weight:600;margin:0;opacity:.8}
+  #grid{display:grid;grid-template-columns:repeat(2,minmax(140px,1fr));gap:12px;padding:0 16px;width:min(480px,100%);box-sizing:border-box}
+  button{padding:28px 12px;border:0;border-radius:16px;background:#1b4a6b;color:#fff;font:600 20px/1 inherit;touch-action:manipulation}
+  button:active{background:#3ddc84;color:#04101c}
+  small{opacity:.55}
+  #status{display:flex;align-items:center;gap:8px}
+  #dot{width:10px;height:10px;border-radius:50%;background:#ffb648}
+  #dot.ok{background:#3ddc84}#dot.bad{background:#ff5c5c}
+  #last{min-height:1.4em;opacity:.8}
+</style></head><body>
+<h1>Facefish control</h1>
+<div id="status"><span id="dot"></span><span id="text">connecting…</span></div>
+<div id="grid">
+  <button data-action="lap">Lap <small>1</small></button>
+  <button data-action="spin">Spin <small>2</small></button>
+  <button data-action="nod">Nod <small>3</small></button>
+  <button data-action="wiggle">Wiggle <small>4</small></button>
+</div>
+<div id="last"></div>
+<small>Keys: 1–4, arrows, Page Up/Down, Space, Enter. MIDI note → action if a device is connected.</small>
+<script>
+  const keys = {'1':'lap','2':'spin','3':'nod','4':'wiggle',PageDown:'lap',ArrowRight:'lap',PageUp:'spin',ArrowLeft:'spin',ArrowUp:'nod',ArrowDown:'wiggle',' ':'nod',Enter:'lap',l:'lap',s:'spin',n:'nod',w:'wiggle'};
+  const midiNotes = {36:'lap',37:'spin',38:'nod',39:'wiggle',60:'lap',62:'spin',64:'nod',65:'wiggle'};
+  let ws;
+  function connect(){
+    ws = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host);
+    ws.onopen=()=>{dot.className='ok';text.textContent='connected to relay'};
+    ws.onclose=()=>{dot.className='bad';text.textContent='disconnected, retrying…';setTimeout(connect,1000)};
+    ws.onerror=()=>{};
+  }
+  connect();
+  function trigger(name){
+    if(!ws||ws.readyState!==1) return;
+    ws.send(JSON.stringify({type:'action',name}));
+    last.textContent='▶ '+name; setTimeout(()=>{ if(last.textContent==='▶ '+name) last.textContent=''; },1500);
+  }
+  document.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>trigger(b.dataset.action)));
+  window.addEventListener('keydown',e=>{const a=keys[e.key]; if(a){e.preventDefault();trigger(a);}});
+  if(navigator.requestMIDIAccess){
+    navigator.requestMIDIAccess().then(m=>{
+      const hook=()=>{ for(const input of m.inputs.values()){ input.onmidimessage=ev=>{ const [st,note,vel]=ev.data; if((st&0xf0)===0x90&&vel>0){ const a=midiNotes[note]; if(a) trigger(a);} }; } };
+      hook(); m.onstatechange=hook;
+    }).catch(()=>{});
+  }
+</script></body></html>`;
 
 // --- fake Face Cap ----------------------------------------------------------
 

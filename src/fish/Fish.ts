@@ -140,7 +140,7 @@ export class Fish implements Avatar {
   }
 
   /** Apply a pose. `time` in seconds drives ambient fin and tail motion. */
-  update(pose: FishPose, _weights: Float32Array, time: number): void {
+  update(pose: FishPose, _weights: Float32Array, time: number, _dt: number): void {
     // Head orientation and drift.
     this.head.rotation.set(pose.headPitch, pose.headYaw, pose.headRoll, 'YXZ');
     this.head.position.set(pose.headX, pose.headY + Math.sin(time * 0.9) * 0.03, 0);

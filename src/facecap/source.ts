@@ -5,9 +5,16 @@
  */
 export type SourceState = 'connecting' | 'open' | 'closed' | 'error';
 
+export interface ControlMessage {
+  type: string;
+  [key: string]: unknown;
+}
+
 export interface FaceSource {
   readonly state: SourceState;
   onPacket: ((data: ArrayBuffer) => void) | null;
+  /** JSON text frames from the relay (action triggers and the like). */
+  onMessage: ((msg: ControlMessage) => void) | null;
   onStateChange: ((state: SourceState, detail?: string) => void) | null;
   start(): void;
   stop(): void;
@@ -22,6 +29,7 @@ export interface WebSocketSourceOptions {
 export class WebSocketSource implements FaceSource {
   state: SourceState = 'closed';
   onPacket: ((data: ArrayBuffer) => void) | null = null;
+  onMessage: ((msg: ControlMessage) => void) | null = null;
   onStateChange: ((state: SourceState, detail?: string) => void) | null = null;
 
   private ws: WebSocket | null = null;
@@ -79,7 +87,16 @@ export class WebSocketSource implements FaceSource {
       this.setState('open', this.url);
     };
     ws.onmessage = (ev: MessageEvent) => {
-      if (ev.data instanceof ArrayBuffer) this.onPacket?.(ev.data);
+      if (ev.data instanceof ArrayBuffer) {
+        this.onPacket?.(ev.data);
+      } else if (typeof ev.data === 'string') {
+        try {
+          const msg = JSON.parse(ev.data) as ControlMessage;
+          if (msg && typeof msg.type === 'string') this.onMessage?.(msg);
+        } catch {
+          /* ignore malformed control messages */
+        }
+      }
     };
     ws.onerror = () => {
       this.setState('error', 'websocket error');

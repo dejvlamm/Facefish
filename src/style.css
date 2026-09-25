@@ -85,6 +85,11 @@ body {
   opacity: 0.6;
 }
 
+#hud-action {
+  color: var(--ok);
+  font-weight: 600;
+}
+
 #hud-form {
   display: flex;
   align-items: center;
@@ -112,4 +117,23 @@ body {
   background: rgba(255, 255, 255, 0.12);
   color: var(--fg);
   font: inherit;
+}
+
+/* Round mask for a porthole; enabled with ?porthole=1 */
+#porthole {
+  display: none;
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(
+    circle at center,
+    transparent 0,
+    transparent 46vmin,
+    rgba(0, 0, 0, 0.85) 50vmin,
+    #000 54vmin
+  );
+}
+
+body.porthole #porthole {
+  display: block;
 }

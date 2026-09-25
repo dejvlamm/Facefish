@@ -5,6 +5,9 @@ import type { FishPose } from './pose';
  * Anything that can be driven by the mapper. The procedural `Fish` and the
  * Blender-made `GltfFish` both implement this, so `main.ts` doesn't care
  * which one is on screen.
+ *
+ * `root` is reserved for the ActionPlayer (laps, spins); avatars animate
+ * their own children and leave the root's transform alone.
  */
 export interface Avatar {
   readonly root: THREE.Object3D;
@@ -12,6 +15,11 @@ export interface Avatar {
    * @param pose    reduced, smoothed parameters (head, jaw, eyes, ...)
    * @param weights smoothed 52 Face Cap blendshape weights, for morph targets
    * @param time    seconds, for ambient motion
+   * @param dt      seconds since the last frame
    */
-  update(pose: FishPose, weights: Float32Array, time: number): void;
+  update(pose: FishPose, weights: Float32Array, time: number, dt: number): void;
+  /** Names of authored animation clips, if any. */
+  readonly clips?: string[];
+  /** Play a clip once; resolves when it finishes. */
+  playClip?(name: string): Promise<void>;
 }

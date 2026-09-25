@@ -20,6 +20,11 @@ import type { FishPose } from './pose';
  */
 export class GltfFish implements Avatar {
   readonly root = new THREE.Group();
+  /** Drift and framing go here so `root` stays free for the ActionPlayer. */
+  private readonly body = new THREE.Group();
+  private mixer: THREE.AnimationMixer | null = null;
+  private readonly clipMap = new Map<string, THREE.AnimationClip>();
+  private activeAction: THREE.AnimationAction | null = null;
 
   private morphs: { mesh: THREE.Mesh; map: Int16Array }[] = [];
   private head: THREE.Object3D | null = null;
@@ -35,12 +40,47 @@ export class GltfFish implements Avatar {
   static async load(url: string): Promise<GltfFish> {
     const gltf = await new GLTFLoader().loadAsync(url);
     const fish = new GltfFish();
-    fish.adopt(gltf.scene);
+    fish.adopt(gltf.scene, gltf.animations);
     return fish;
   }
 
-  private adopt(scene: THREE.Group): void {
-    this.root.add(scene);
+  get clips(): string[] {
+    return [...this.clipMap.keys()];
+  }
+
+  /** Play an authored clip once (a Blender NLA track exported with the model). */
+  playClip(name: string): Promise<void> {
+    const clip = this.clipMap.get(name);
+    if (!clip || !this.mixer) return Promise.resolve();
+    const mixer = this.mixer;
+    this.activeAction?.stop();
+    const action = mixer.clipAction(clip);
+    action.reset();
+    action.setLoop(THREE.LoopOnce, 1);
+    action.clampWhenFinished = false;
+    action.play();
+    this.activeAction = action;
+    return new Promise((resolve) => {
+      const onFinished = (e: { action: THREE.AnimationAction }): void => {
+        if (e.action !== action) return;
+        mixer.removeEventListener('finished', onFinished);
+        action.stop();
+        if (this.activeAction === action) this.activeAction = null;
+        resolve();
+      };
+      mixer.addEventListener('finished', onFinished);
+    });
+  }
+
+  private adopt(scene: THREE.Group, animations: THREE.AnimationClip[]): void {
+    this.root.add(this.body);
+    this.body.add(scene);
+
+    if (animations.length > 0) {
+      this.mixer = new THREE.AnimationMixer(scene);
+      for (const clip of animations) this.clipMap.set(clip.name, clip);
+      this.report.push(`clips: ${animations.map((c) => c.name).join(', ')}`);
+    }
 
     // Normalise size: fit the model into roughly the same box as the procedural fish.
     const box = new THREE.Box3().setFromObject(scene);
@@ -93,7 +133,9 @@ export class GltfFish implements Avatar {
     }
   }
 
-  update(pose: FishPose, weights: Float32Array, time: number): void {
+  update(pose: FishPose, weights: Float32Array, time: number, dt: number): void {
+    this.mixer?.update(dt);
+
     for (const { mesh, map } of this.morphs) {
       const inf = mesh.morphTargetInfluences!;
       for (let i = 0; i < BLENDSHAPE_COUNT; i++) {
@@ -111,7 +153,7 @@ export class GltfFish implements Avatar {
         this.head.rotation.copy(e);
       }
     }
-    this.root.position.set(pose.headX, pose.headY + Math.sin(time * 0.9) * 0.03, 0);
+    this.body.position.set(pose.headX, pose.headY + Math.sin(time * 0.9) * 0.03, 0);
 
     if (this.jaw && !this.hasJawShape) {
       const rest = this.restRotations.get(this.jaw)!;

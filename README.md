@@ -63,7 +63,7 @@ shape keys on your mesh. During development you can also point at any file with
 ## Project layout
 
 ```
-relay/relay.mjs          UDP → WebSocket relay (+ --fake data generator)
+relay/relay.mjs          UDP → WebSocket relay, OSC action input, control page (+ --fake)
 src/facecap/osc.ts       minimal OSC 1.0 decoder (messages + bundles)
 src/facecap/decoder.ts   OSC messages → FaceFrame (52 weights, head, eyes)
 src/facecap/blendshapes.ts  Face Cap blendshape index table
@@ -73,6 +73,8 @@ src/fish/Fish.ts         procedural fish mesh (fallback when there is no model)
 src/fish/GltfFish.ts     Blender/glTF fish: shape keys by name, Head/Jaw/Eye/Tail nodes
 blender/                 Blender conventions and a shape-key setup script
 src/scene.ts             renderer, camera, lights, bubbles
+src/actions/             ActionPlayer, procedural actions, keyboard + gesture triggers
+src/config.ts            URL/localStorage settings (mirror, head gain, framing, hud...)
 src/ui/hud.ts            status overlay + relay URL form
 src/main.ts              wires everything together
 ```
@@ -86,6 +88,63 @@ src/main.ts              wires everything together
 - `headGain`, `headLimitDeg` tame head motion.
 - `rateFast` / `rateSlow` are smoothing rates; higher is snappier.
 - `idleAfter` is how long without packets before the idle animation takes over.
+
+## On stage: the helmet setup
+
+The iPad lives inside a diving helmet on the singer, screen facing the audience,
+with the iPhone running Face Cap inside the helmet looking at the singer's face.
+That changes a few defaults, all in `src/config.ts` and settable once via URL
+parameters (they're remembered on the device):
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `mirror` | `0` | The fish is the singer's face seen from the front, so `_L` shapes land on the fish's own left. Use `mirror=1` for desk testing with the screen facing you. |
+| `head` | `0` | Head rotation gain. The helmet physically turns with the head, so the virtual head stays still. Try `0.2` for a little extra life. |
+| `zoom`, `y` | `1`, `0` | Framing for the porthole: camera zoom and vertical shift. |
+| `porthole` | `0` | Dark circular mask for a round window. |
+| `hud` | `auto` | `auto` hides the overlay a few seconds after tracking starts, `on`/`off` force it. Press `h` or tap to peek. |
+| `gestures` | `0` | Let the singer trigger actions with held face gestures. |
+| `idleActions` | `0` | Random actions while idling between songs. |
+| `reset` | | Forget saved settings. |
+
+Example first launch on the iPad: `?ws=ws://10.0.0.2:8765&porthole=1&zoom=1.15&y=0.05`.
+
+Also for the stage build:
+
+- The native app keeps the screen awake (`AppDelegate.swift`). Use Guided Access to
+  lock the iPad to the app, and turn brightness up.
+- Pixel ratio is capped at 1.5 for thermal headroom; the helmet has no airflow.
+  If the iPad still gets hot, lower it further in `src/scene.ts` or shrink the
+  caustics texture.
+- Network: both devices are inside a metal helmet. The most robust setup is the
+  iPhone's personal hotspot with the iPad and the relay laptop joined to it, tested
+  inside the actual helmet. A native UDP receiver on the iPad (so the iPhone talks
+  to it directly, no laptop) is the next step if Wi-Fi out of the helmet proves
+  unreliable; the app's source interface is ready for it.
+
+## Actions and how to trigger them
+
+Actions are short body animations: `lap` (swim a loop out of frame and back),
+`spin`, `nod`, `wiggle`. Face tracking keeps running underneath. Two kinds:
+
+- **Procedural** (`src/actions/procedural.ts`): animate the avatar's root transform,
+  so they work on the placeholder fish and on any Blender model.
+- **Authored clips** from Blender: export NLA tracks in the GLB and name them like
+  the action (`Lap`, `Spin`). When a clip with that name exists, it's used instead
+  of the procedural one. Clips should animate a body/root bone, never the `Head`
+  bone or shape keys, which tracking owns.
+
+Nobody can touch the iPad inside the helmet, so triggers come from outside:
+
+| Trigger | How | Needs |
+| --- | --- | --- |
+| Bluetooth clicker / pedal | Presentation clickers and page-turner pedals pair with the iPad as keyboards. Page Down / Enter → lap, Page Up → spin, arrows → nod / wiggle, or keys `1`–`4`. Map in `DEFAULT_KEYS`. | Nothing else. Test range inside the helmet. |
+| Control page | `http://<relay>:8765/` on the operator's laptop or phone: big buttons, keyboard, and a MIDI controller via Web MIDI. | Relay running, same network. |
+| OSC | `/action lap` or `/action/lap` to the relay's UDP port from QLab, Ableton, TouchOSC, a show controller. | Relay running. |
+| Face gestures | `?gestures=1`: tongue out held → wiggle, wide eyes + brows up → spin, long left wink → lap. Held for a moment, with a cooldown. | Nothing, the singer does it. |
+| Idle | `?idleActions=1`: random actions when no tracking, between songs. | Nothing. |
+
+Any WebSocket client can also send `{"type":"action","name":"lap"}` to the relay.
 
 ## Underwater look
 
